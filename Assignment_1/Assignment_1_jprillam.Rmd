@@ -1,0 +1,120 @@
+---
+title: "Assignment 1 - Intro ML - Joe Prillaman"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r}
+#Installing packages for use later
+
+#for reading the dataset into a dataframee
+install.packages("readxl")
+library(readxl)
+
+#For descriptive stats and transforming dataset
+install.packages("dplyr")
+library(dplyr)
+
+#For plotting data
+install.packages("ggplot2")
+library(ggplot2)
+```
+
+```{r}
+#using readxl package to read data into a dataframe
+#adult data from the UC Irvine Machine Learning Repository
+#The data set has been assembled to Predict whether annual income of an individual exceeds $50K/yr based on census data
+Assignment_1_DF <- read_excel("adult.data.xls")
+```
+
+```{r}
+#Print descriptive statistics of the data (Both categorical & numerical variables)
+
+#using dplyr package to retrieve descriptive statistics from dataset
+
+#average value of Hours Per Week variable
+Assignment_1_DF %>%
+  summarise(avghoursworked = mean(`Hours Per Week`, na.rm = TRUE))
+
+#Looking into average hours worked based on native country
+Assignment_1_DF %>%
+  group_by(`Native Country`) %>%
+  summarise(avghoursworked = mean(`Hours Per Week`, na.rm = TRUE),
+  count_Rows= n()
+  )%>%
+  arrange(avghoursworked)
+
+#Looking into average working hourse based on marital status. Probably a stronger predictor.
+Assignment_1_DF %>%
+  group_by(`Marital Status`) %>%
+  summarise(avghoursworked = mean(`Hours Per Week`, na.rm = TRUE),
+  count_Rows= n()
+  )%>%
+  arrange(avghoursworked)
+
+#Looking into this but also grouping by sex as that is probably important, especially while looking at marriage status
+Assignment_1_DF %>%
+  group_by(`Marital Status`,`Sex`) %>%
+  summarise(avghoursworked = mean(`Hours Per Week`, na.rm = TRUE),
+  count_Rows= n()
+  )%>%
+  arrange(avghoursworked)
+
+```
+
+```{r}
+#Transforming the marital status variable to make it easier to look at and analys
+Assignment_1_DF <- Assignment_1_DF %>%
+  mutate(`Marital Status` = if_else(
+    `Marital Status` %in% c("Married-spouse-absent", "Married-AF-spouse", "Married-civ-spouse"),
+    "Married",
+    `Marital Status`
+  ))
+
+#Looking into average working hours by marital status and sex again but this time with a simplified marital status categorical variable value set
+Assignment_1_DF %>%
+  group_by(`Marital Status`,`Sex`) %>%
+  summarise(avghoursworked = mean(`Hours Per Week`, na.rm = TRUE),
+  count_Rows= n()
+  )%>%
+  arrange(avghoursworked)
+```
+
+```{r}
+#Plotting at least one quant variable and one scatterplot
+
+#quick histogram to see dist of hours per week variable
+ggplot(Assignment_1_DF, aes(x = `Hours Per Week`)) +
+  geom_histogram(binwidth = 5, fill = "lightgrey", color = "black") +
+  labs(title = "Distribution of Hours Per Week",
+       x = "Hours Per Week",
+       y = "Count")
+
+#scatter plot to look at relationship between age and hourse per week
+ggplot(Assignment_1_DF, aes(x = `Hours Per Week`, y = `Age`)) +
+  geom_point(alpha = 0.5, color = "pink") +
+  labs(title = "Hours Per Week vs Age",
+       x = "Hours Per Week",
+       y = "Age")
+#scatter plot not very helpful... going to look at another variable...
+
+#Hours Per week vs capital gain this time
+ggplot(Assignment_1_DF, aes(x = `Capital Gain`, y = `Hours Per Week`)) +
+  geom_point(alpha = 0.5, color = "lightblue") +
+  labs(title = "Hours Per Week vs Capital Gain",
+       x = "Capital Gain",
+       y = "Hours Per Week")
+#Still not the most interesting plot, however it seems for those with higher capital gains there are less often extremely high working hours per week. This makes sense intuitively.
+#Hmm.. Now thinking I should plot age against capital gain
+
+#age vs capital gain this time
+ggplot(Assignment_1_DF, aes(x = `Age`, y = `Capital Gain`)) +
+  geom_point(alpha = 0.5, color = "lightgreen") +
+  labs(title = "Hours Per Week vs Capital Gain",
+       x = "Age",
+       y = "Capital Gain")
+#Not quite the linear relationship I was expecting. Higher capital gains seem centered around age 50, which I suppose makes sense as this is pre-retirement and at the hieght of income levels.
+```
+
+
