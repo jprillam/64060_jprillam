@@ -1,0 +1,302 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+Joe Prillaman
+Assignment 2
+Introduction to Machine Learning
+4 October 2026
+
+
+```{r}
+#Setting the working directory & reading csv file into a data frame
+setwd("/Users/joe/Desktop/Masters Program/Fall 2026/Fundamentals of Machine Learning/Module 4/Assignment 2")
+UniversalBankDF <- read.csv("UniversalBank.csv")
+
+#Pulling packages needed for work below
+
+#install.packages("dplyr")
+library("dplyr")
+
+#install.packages("caret")
+library("caret")
+```
+
+Universal Bank Scenario:
+
+A campaign that the bank ran last year for liability customers showed a healthy conversion rate of over 9% success. This has encouraged the retail marketing department to devise smarter campaigns with better target marketing. The goal is to use k-NN to predict whether a new customer will accept a loan offer. This will serve as the basis for the design of a new campaign.
+
+The file UniversalBank.csv contains data on 5000 customers. The data include customer demographic information (age, income, etc.), the customer’s relationship with the bank (mortgage, securities account, etc.), and the customer response to the last personal loan campaign (Personal Loan). Among these 5000 customers, only 480 (= 9.6%) accepted the personal loan that was offered to them in the earlier campaign.
+
+```{r}
+#Partition the data into training (60%) and validation (40%) sets.
+#Note to self - Ensure equitable distribution of loan acceptance for training & validation sets
+  #This will be a stratified split
+  #Need to remember to transform education column
+
+#Transform Education column into 3 dummy columns
+UniversalBankDF <- UniversalBankDF %>%
+  mutate(
+    Education_1 = as.integer(Education == 1),
+    Education_2 = as.integer(Education == 2),
+    Education_3 = as.integer(Education == 3)
+  ) %>%
+  select(-Education)   # drop the original column
+
+#set random seed
+set.seed(404)
+
+# Stratified sample for training df
+trainDF <- UniversalBankDF %>%
+  group_by(Personal.Loan) %>% 
+  slice_sample(prop = 0.6) %>%
+  ungroup()
+
+# Everything not in training goes to testDF
+testDF <- anti_join(UniversalBankDF, trainDF, by = "ID")
+
+```
+
+```{r}
+# Create KNN Classification with all variables except Zip code and ID using K=1 to predict Personal.Loan. Default cutoff of 0.5. Use caret package. Using this to classify the example in Q1ExampleRecord to answer question #1
+
+# Outcome as factor in both sets
+trainDF$Personal.Loan <- factor(trainDF$Personal.Loan, levels = c(0, 1))
+testDF$Personal.Loan <- factor(testDF$Personal.Loan, levels = c(0, 1))
+
+# Predictors only
+train_x <- trainDF %>% select(-ID, -ZIP.Code, -Personal.Loan)
+test_x <- testDF %>% select(-ID, -ZIP.Code, -Personal.Loan)
+
+# Fit the scaler on training data only, then apply it to both sets
+cont_vars <- c("Age", "Experience", "Income", "Family", "CCAvg", "Mortgage")
+scaler <- preProcess(train_x[, cont_vars], method = c("center", "scale"))
+train_x[, cont_vars] <- predict(scaler, train_x[, cont_vars])
+test_x[, cont_vars] <- predict(scaler, test_x[, cont_vars])
+
+# Fit on the training set. k=1
+fit <- knn3(x = train_x, y = trainDF$Personal.Loan, k = 1)
+
+# Predict on the test set and apply the 0.5 cutoff
+probs <- predict(fit, test_x)[, "1"]
+pred  <- factor(ifelse(probs > 0.5, 1, 0), levels = c(0, 1))
+
+# Evaluate against the test set actual values
+confusionMatrix(pred, testDF$Personal.Loan, positive = "1")
+
+names(train_x)
+
+# Create example record for Q1
+Q1ExampleRecord <- data.frame(
+  Age = 40,
+  Experience = 10,
+  Income = 84,
+  Family = 2,
+  CCAvg = 2.0,
+  Mortgage = 0,
+  Securities.Account = 0,
+  CD.Account = 0,
+  Online = 1,
+  CreditCard = 1,
+  Education_1 = 0,
+  Education_2 = 1,
+  Education_3 = 0
+)
+
+# Scale the continuous variables with the scaler
+Q1ExampleRecord[, cont_vars] <- predict(scaler, Q1ExampleRecord[, cont_vars])
+
+# Prediction using the 0.5 cutoff
+prob <- predict(fit, Q1ExampleRecord)[, "1"]
+pred <- ifelse(prob > 0.5, "1 (loan accepted)", "0 (loan not accepted)")
+
+prob
+pred
+```
+
+Question 1
+
+Consider the following customer: Age = 40, Experience = 10, Income = 84, Family = 2, CCAvg = 2, Education_1 = 0, Education_2 = 1, Education_3 = 0, Mortgage = 0, Securities Account = 0, CD Account = 0, Online = 1, and Credit Card = 1. Perform a k-NN classification with all predictors except ID and ZIP code using k = 1. Remember to transform categorical predictors with more than two categories into dummy variables first. Specify the success class as 1 (loan acceptance), and use the default cutoff value of 0.5. How would this customer be classified?
+
+This person would be classified as rejected.
+
+
+
+```{r}
+#Using the same model and 0.5 cutoff but now testing different values of k to determine a value that is optimal and balances between overfitting and ignoring singals in the data
+
+#Ultimately landed on an "optimized" k value of 3
+
+# Fit on the training set - testing different k values
+fit <- knn3(x = train_x, y = trainDF$Personal.Loan, k = 3)
+
+# Predict on the test set with the 0.5 cutoff
+probs <- predict(fit, test_x)[, "1"]
+pred  <- factor(ifelse(probs > 0.5, 1, 0), levels = c(0, 1))
+
+# comparing against validation set real values
+confusionMatrix(pred, testDF$Personal.Loan, positive = "1")
+
+#Notes to self for Question 2:
+#K=1 results in high overall accuracy 0.961 but relatively low specificity, compared to other k values, which would result in cost to Universal Bank. Sensitivity is 0.6719
+#K=2 results in lower overall accuracy 0.9535, but perfect specificity. Sensitivity drops to 0.5156
+#K=3 Accuracy jumps to 0.9625, and specificity is nearly 1, with a sensitivity value of 0.6146
+#K=4 Accuracy 0.9535, Spec 1, Sens .5156
+#K=5 Acc 0.959, sens 0.5781, spec 0.9994
+#K=6 Acc 0.9505, Sens .48, spec 0.999,
+#K=7 Acc 0.953, sens 0.52, spec 0.998
+#K=8 Acc 0.95, sen 0.47, spec 1
+#K=9 Acc 0.9535, sen .515, spec 1
+#K=10 acc .948, sen 0.45, spec 1
+
+```
+
+Question 2
+
+What is a choice of k that balances between over fitting and ignoring the predictor information?
+
+It seems to me that 3 is the best value for k in this model, if my assumptions about the trade-offs for Universal Bank are correct. Ultimately, in a real scenario, I would like to learn more about the cost of false positives and false negatives for Universal Bank before making a decision on this value, but in this case I will say 3 is the best option. The reasoning is that, while maintaining relatively high accuracy (> 96%), and very high specificity (only one false positive), this value results in > 60% sensitivity which is closer to 50% with almost all other k values. The only k value with a higher sensitivity is k=1 which also resulted in 14 more false positives, which I assume is very costly to the business. That being said, in this test data, if we used k=1 we would also have 11 more true positives. My assumption is that it is more costly to UB to provide a personal loan to someone who would default, than to not provide a personal loan to someone who would not default. For that reason, my reccomendation is to use the k value of 3.
+
+```{r}
+#Confusion matrix for question 3 using K value of 3
+
+fit <- knn3(x = train_x, y = trainDF$Personal.Loan, k = 3)
+probs <- predict(fit, test_x)[, "1"]
+pred  <- factor(ifelse(probs > 0.5, 1, 0), levels = c(0, 1))
+confusionMatrix(pred, testDF$Personal.Loan, positive = "1")
+
+```
+
+Question 3
+
+Show the confusion matrix for the validation data that results from using the best k.
+
+Confusion Matrix shown in code output above
+
+```{r}
+
+# Create example record for Q4
+# Outcome as factor in both sets
+trainDF$Personal.Loan <- factor(trainDF$Personal.Loan, levels = c(0, 1))
+testDF$Personal.Loan <- factor(testDF$Personal.Loan, levels = c(0, 1))
+
+# Predictors only
+train_x <- trainDF %>% select(-ID, -ZIP.Code, -Personal.Loan)
+test_x <- testDF %>% select(-ID, -ZIP.Code, -Personal.Loan)
+
+# Fit the scaler on training data only, then apply it to both sets
+cont_vars <- c("Age", "Experience", "Income", "Family", "CCAvg", "Mortgage")
+scaler <- preProcess(train_x[, cont_vars], method = c("center", "scale"))
+train_x[, cont_vars] <- predict(scaler, train_x[, cont_vars])
+test_x[, cont_vars] <- predict(scaler, test_x[, cont_vars])
+
+# Fit on the training set. k=3
+fit <- knn3(x = train_x, y = trainDF$Personal.Loan, k = 3)
+
+# Predict on the test set and apply the 0.5 cutoff
+probs <- predict(fit, test_x)[, "1"]
+pred  <- factor(ifelse(probs > 0.5, 1, 0), levels = c(0, 1))
+
+# Create example record for Q4
+Q4ExampleRecord <- data.frame(
+  Age = 40,
+  Experience = 10,
+  Income = 84,
+  Family = 2,
+  CCAvg = 2.0,
+  Mortgage = 0,
+  Securities.Account = 0,
+  CD.Account = 0,
+  Online = 1,
+  CreditCard = 1,
+  Education_1 = 0,
+  Education_2 = 1,
+  Education_3 = 0
+)
+
+# Scale the continuous variables with the scaler
+Q4ExampleRecord[, cont_vars] <- predict(scaler, Q4ExampleRecord[, cont_vars])
+
+# Prediction using the 0.5 cutoff
+prob <- predict(fit, Q4ExampleRecord)[, "1"]
+pred <- ifelse(prob > 0.5, "1 (loan accepted)", "0 (loan not accepted)")
+
+pred
+```
+
+Question 4
+
+Consider the following customer:
+Age = 40, Experience = 10, Income = 84,Family = 2, CCAvg = 2, Education_1 = 0, Education_2 = 1, Education_3 = 0, Mortgage = 0, Securities Account = 0, CD Account = 0, Online = 1 and CreditCard = 1. 
+
+Classify the customer using the best k.
+
+Customer was classified as not accepted or 0
+
+```{r}
+#Re-splitting original df into train, test & validationn sets
+
+set.seed(404)
+
+trainQ5 <- UniversalBankDF %>%
+  group_by(Personal.Loan) %>%
+  slice_sample(prop = 0.5) %>%
+  ungroup()
+
+remaining <- anti_join(UniversalBankDF, trainQ5, by = "ID")
+
+validQ5 <- remaining %>%
+  group_by(Personal.Loan) %>%
+  slice_sample(prop = 0.6) %>%
+  ungroup()
+
+testQ5 <- anti_join(remaining, validQ5, by = "ID")
+
+#Retraining on the new training set called trainQ5
+
+# Outcome as factor in all three sets
+trainQ5$Personal.Loan <- factor(trainQ5$Personal.Loan, levels = c(0, 1))
+validQ5$Personal.Loan <- factor(validQ5$Personal.Loan, levels = c(0, 1))
+testQ5$Personal.Loan  <- factor(testQ5$Personal.Loan,  levels = c(0, 1))
+
+# Predictors only
+train_xQ5 <- trainQ5 %>% select(-ID, -ZIP.Code, -Personal.Loan)
+valid_xQ5 <- validQ5 %>% select(-ID, -ZIP.Code, -Personal.Loan)
+test_xQ5  <- testQ5  %>% select(-ID, -ZIP.Code, -Personal.Loan)
+
+# Fit the scaler on trainQ5 then apply it to all three sets
+cont_vars <- c("Age", "Experience", "Income", "Family", "CCAvg", "Mortgage")
+scaler <- preProcess(train_xQ5[, cont_vars], method = c("center", "scale"))
+train_xQ5[, cont_vars] <- predict(scaler, train_xQ5[, cont_vars])
+valid_xQ5[, cont_vars] <- predict(scaler, valid_xQ5[, cont_vars])
+test_xQ5[,  cont_vars] <- predict(scaler, test_xQ5[,  cont_vars])
+
+# Fit k-NN with k = 3 on trainQ5
+fitQ5 <- knn3(x = train_xQ5, y = trainQ5$Personal.Loan, k = 3)
+
+# Predict on validation and test sett, applying the 0.5 cutoff
+probs_valid <- predict(fitQ5, valid_xQ5)[, "1"]
+pred_valid  <- factor(ifelse(probs_valid > 0.5, 1, 0), levels = c(0, 1))
+
+probs_test <- predict(fitQ5, test_xQ5)[, "1"]
+pred_test  <- factor(ifelse(probs_test > 0.5, 1, 0), levels = c(0, 1))
+
+# Confusion matrixes (1 = loan acceptance is the positive class)
+cm_valid <- confusionMatrix(pred_valid, validQ5$Personal.Loan, positive = "1")
+cm_test  <- confusionMatrix(pred_test,  testQ5$Personal.Loan,  positive = "1")
+
+cm_valid
+cm_test
+
+# Side-by-side comparison of key metrics
+rbind(
+  Validation = cm_valid$byClass[c("Sensitivity", "Specificity", "Pos Pred Value")],
+  Test       = cm_test$byClass[c("Sensitivity", "Specificity", "Pos Pred Value")]
+)
+
+```
+Question 5
+
+Re partition the data, this time into training, validation, and test sets (50% : 30% : 20%). Apply the k-NN method with the k chosen above. Compare the confusion matrix of the test set with that of the training and validation sets. Comment on the differences and their reason.
+
+The model was trained on the training set with k=3 and then predicted the personal loan approval value for both the validation and test data sets. The model returned higher sensitivity and specificity and accuracy on the validation dataset, compared to the test dataset. As I looked for reasons there might be a difference in the results, I started by looking at the distribution of different variables in the valid_xQ5 and test_xQ5 datasets. There are minor differences, that may be playing into the differing results, but the summary distributions don't reveal any glaring errors. My conclusion is that there are differing results due to the number of records in the test dataset being much lower (500 less records). I think if the test_xQ5 dataset were also 1500 records, the model would have returned similar accuracy, specificity and sensitivity on both validation and test datasets.
