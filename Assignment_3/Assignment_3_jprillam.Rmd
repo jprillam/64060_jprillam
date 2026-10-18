@@ -1,0 +1,156 @@
+---
+title: "Assignment_3_jprillam"
+output: html_notebook
+---
+
+```{r}
+#Setting the working directory
+setwd("/Users/joe/Desktop/Masters Program/Fall 2026/Fundamentals of Machine Learning/Module 5/Assignment 3")
+
+#Reading in the csv to create the original data frame
+original <- read.csv("UniversalBank.csv")
+```
+
+```{r}
+#installing/loading all of the packages needed for the assignment
+
+#install.packages("dplyr")
+library("dplyr")
+#install.packages("e1071")
+library("e1071")
+```
+
+```{r}
+#Create simple filtered table with only variables of interest and ID
+set.seed(404)
+
+filtered <- original %>%
+  select(ID, CreditCard, Online, Personal.Loan)
+
+training <- filtered %>%
+  group_by(CreditCard, Online, Personal.Loan) %>%
+  slice_sample(prop = 0.6) %>%
+  ungroup()
+
+validation <- filtered %>%
+  anti_join(training, by = "ID")
+
+#delete ID column from 3 non-original tables
+training   <- training   %>% select(-ID)
+validation <- validation %>% select(-ID)
+filtered <- filtered %>% select(-ID)
+```
+
+```{r}
+#double check training and validation split is roughly 60/40
+nrow(training) / nrow(filtered)    # should be ~0.60
+nrow(validation) / nrow(filtered)  # should be ~0.40
+
+#checking proportions 
+training   %>% count(CreditCard, Online, Personal.Loan) %>% mutate(prop = n / sum(n))
+validation %>% count(CreditCard, Online, Personal.Loan) %>% mutate(prop = n / sum(n))
+```
+
+Assignment 3 - Part A
+Create a pivot table for the training data with Online as a column variable, CC as a row variable, and Loan as a secondary row variable. The values inside the table should convey the count. In R use functions melt() and cast(), or function table().
+```{r}
+
+PivotPartA <- ftable(table(training$CreditCard, training$Personal.Loan, training$Online,
+                      dnn = c("CC", "Loan", "Online")),
+                row.vars = c("CC", "Loan"),
+                col.vars = "Online")
+PivotPartA
+```
+
+Assignment 3 - Part B
+Consider the task of classifying a customer who owns a bank credit card and is actively using online banking services. Looking at the pivot table, what is the probability that this customer will accept the loan offer? [This is the probability of loan acceptance (Loan = 1) conditional on having a bank credit card (CC = 1) and being an active user of online banking services (Online = 1)].
+```{r}
+# Owns a cc (881/2997), Uses online (529/881)
+# Of those customers, what is the probability they will accept a loan offer
+# 49 of the 529 accepted the loan, of the CC+Online group
+# 49/529 = 9.3%
+# The probability would be 9.3%
+```
+
+Assignment 3 - Part C
+Create two separate pivot tables for the training data. One will have Loan (rows) as a function of Online (columns) and the other will have Loan (rows) as a function of CC.
+```{r}
+#loan as a function of online
+PivotPartC_online <- table(training$Personal.Loan, training$Online,
+                      dnn = c("Loan", "Online"))
+
+#loan as a function of cc
+PivotPartC_cc <- table(training$Personal.Loan, training$CreditCard,
+                  dnn = c("Loan", "CC"))
+
+#show both pivots
+print("PivotPartC_online")
+PivotPartC_online
+print("PivotPartC_cc")
+PivotPartC_cc
+```
+
+Assignment 3 - Part D (i-vi)
+Compute the following quantities [P(A | B) means “the probability of A given B”]:
+i. P(CC = 1 | Loan = 1)
+ii. P(Online = 1 | Loan = 1)
+iii. P(Loan = 1)
+iv. P(CC = 1 | Loan = 0)
+v. P(Online = 1 | Loan = 0)
+vi. P(Loan = 0)
+```{r}
+#i. (85/286) = 29.7%
+#ii. (174/286) = 60.8%
+#iii. (286/2997) = 9.5%
+#iv. (796/2711) = 29.4%
+#v. (1615/2711) = 59.6%
+#vi. (2711/2997) = 90.5%
+```
+
+Assignment 3 - Part E
+Use the quantities computed above to compute the naive Bayes probability P(Loan = 1 | CC = 1, Online = 1).
+```{r}
+p1 <- ((85/286) * (174/286) * (286/2997))
+p0 <- ((796/2711) * (1615/2711) * (2711/2997))
+p1 / (p1 + p0)
+
+#Naive Bayes probability = ~9.8%
+```
+
+Assignment 3 - Part F
+Compare this value with the one obtained from the pivot table in (B). Which is a more accurate estimate?
+```{r}
+#Exact probability = ~9.3%
+#Naive Bayes probability = ~9.8%
+
+#The exact probability is more accurate as the NB probability makes assumptions about the independence of the CC & online variables
+```
+
+Assignment 3 - Part E
+Which of the entries in this table are needed for computing P(Loan = 1 | CC = 1, Online = 1)? Run naive Bayes on the data. Examine the model output on training data, and find the entry that corresponds to P(Loan = 1 | CC = 1, Online = 1). Compare this to the number you obtained in (E).
+```{r}
+#For the first question, the number of entries in the table needed depend on which probability we calculate. If we are calculating the exact probability, we only need 2 entries (49 & 480), but if we are using NB we need all 8 values.
+
+training$Personal.Loan   <- as.factor(training$Personal.Loan)
+training$CreditCard     <- as.factor(training$CreditCard)
+training$Online <- as.factor(training$Online)
+
+# fitting the model on the training data
+nb_model <- naiveBayes(Personal.Loan ~ CreditCard + Online, data = training)
+
+#model output
+nb_model
+
+#Examining the model to find the outputs that correspond to P(Loan=1|CC=1,Online=1) and calculate the probability
+
+#P(loan =1) 0.09542876, P(CC=1|Loan=1) 0.2972028, P(Online=1|Loan=1) 0.6083916
+#P(loan =0) 0.90457124, P(CC=1|Loan=0) 0.2936186, P(Online=1|Loan=0) 0.5957211
+#Now calculate P(Loan = 1 | CC = 1, Online = 1)
+
+PartEProb <- (0.09542876*0.2972028*0.6083916)/((0.09542876*0.2972028*0.6083916)+ (0.90457124*0.2936186*0.5957211))
+
+PartEProb
+#This returns the same value obtained in part E of ~9.8%
+
+```
+
