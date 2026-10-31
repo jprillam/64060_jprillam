@@ -1,0 +1,175 @@
+---
+title: "Assignment_4_jprillam"
+output: html_notebook
+---
+
+```{r}
+#Setting the working directory
+setwd("/Users/joe/Desktop/Masters Program/Fall 2026/Fundamentals of Machine Learning/Module 6/Assignment 4")
+
+#Reading in the csv to create the original data frame
+Pharma <- read.csv("Pharmaceuticals.csv")
+```
+
+```{r}
+#installing/loading all of the packages needed for the assignment
+
+library(dplyr)
+library(factoextra)
+```
+
+```{r}
+#standardize the 9 numerical variables we will use for clustering
+
+vars <- c("Market_Cap", "Beta", "PE_Ratio", "ROE", "ROA", "Asset_Turnover", "Leverage", "Rev_Growth", "Net_Profit_Margin")
+
+StdPharma <- Pharma %>%
+  mutate(across(all_of(vars), ~ as.numeric(scale(.x))))
+```
+Things I know I need to do:
+
+X standardize the numerical values in the dataset before clustering
+    Done
+
+_ determine the right weighting for different variables... How? IDK What some of these are...
+    Coming back to this, I think I am over thinking it - Revenue growth, market cap & profit margin seem important based on research into what equity analysts would look at.
+  
+_ determine the right kind of distance measure to use e.g., euclidean, manhattan, etc.
+```{r}
+#Create table with only the 9 standardized variables for clustering
+StdPharmaTrimmed <- StdPharma %>%
+  select(Market_Cap, Beta, PE_Ratio, ROE, ROA, Asset_Turnover, Leverage, Rev_Growth, Net_Profit_Margin)
+```
+
+```{r}
+#double checking whether there are many outliers int he data using the z score definition, just to make sure euclidean distance makes sense. I think manhattan would make sense were there a lot of outliers, but since there are few, I will stick with euclidean.
+sapply(StdPharmaTrimmed, function(x) sum(abs(x) > 3, na.rm = TRUE))
+```
+
+```{r}
+#Clustering with 4 centroids
+set.seed(404)
+
+#might as well start 100 times since small df
+k4 <- kmeans(StdPharmaTrimmed, centers = 4, nstart = 100)
+fviz_cluster(k4, data = StdPharmaTrimmed)
+
+#Just taking an initial pass at clustering with no weights and 4 centroids
+
+```
+
+```{r}
+#adding weights to variables that I'd anticipate and equities analyst might deem more important for investment decisions...
+weights <- c(
+  Market_Cap        = 1.5, #a clear way to differentiate size tier
+  Rev_Growth        = 1.5, #clear growth signal
+  Net_Profit_Margin = 1.5, #clear profit signal
+  PE_Ratio          = 1.25, # valuation/expectations
+  ROA               = 1,#keeping standard weight
+  Leverage          = 1, #keeping standard
+  Beta              = 0.75, # sector is defensive, so less discriminating on volitility
+  ROE               = 0.75, # overlaps with ROA, margin, and leverage
+  Asset_Turnover    = 1 # keep standard
+)
+
+# new dataframe with weights applied
+StdPharmaWeighted <- sweep(StdPharmaTrimmed, 2, weights[names(StdPharmaTrimmed)], `*`)
+```
+
+```{r}
+#Clustering with 4 centers on weighted data 
+set.seed(404)
+
+k4w <- kmeans(StdPharmaWeighted, centers = 4, nstart = 100)
+fviz_cluster(k4w, data = StdPharmaWeighted)
+```
+
+```{r}
+#cross tab to compare cluster assignments from equal weighting kmeans to the weighted kmeans.
+table(equal = k4$cluster, weighted = k4w$cluster)
+```
+
+```{r}
+#now going to start determining the right number of clusters for our data using the elbow method and the avg silhouette method. Also going to run this on weighted and unweighted data to see if I am changing the number of natural clusters in the data
+
+set.seed(404)
+#Visuals for un-weighted data
+fviz_nbclust(StdPharmaTrimmed, kmeans, method = "wss")
+fviz_nbclust(StdPharmaTrimmed, kmeans, method = "silhouette")
+```
+
+```{r}
+#Visuals for weighted data
+
+set.seed(404)
+fviz_nbclust(StdPharmaWeighted, kmeans, method = "wss")
+fviz_nbclust(StdPharmaWeighted, kmeans, method = "silhouette")
+
+#Since I will run my clustering on the weighted data, I need to run the elbow and silhouette on this data. On the elbow chart, 4 seems to be the knee, describing that the benefit of increasing to 5 clusters is very little, and it doesn't do much to increase the similarity within clusters
+
+#the silhouette seems to suggest that companies fit their clusters best with 3 or 5 clusters, but the trade off for 4 clusters is small...
+
+#all in all, I am going with 4 clusters
+```
+
+
+```{r}
+#final kmeans cluster, with decided number of 4, with weighting, and using euclidean distance...
+
+set.seed(404)
+k4_final <- kmeans(StdPharmaWeighted, centers = 4, nstart = 100)
+
+k4_final$size #checking the size of the clusters to make sure there are no super small clusters... Looks good. Retlatively even size.
+
+fviz_cluster(k4_final, data = StdPharmaWeighted)
+```
+
+```{r}
+#attach final cluster assignments to standardized full table
+StdPharma$cluster <-factor(k4_final$cluster)
+```
+
+```{r}
+#look into avg z scores for each company to see what describes the cluster...
+profile_z <- StdPharma %>%
+  group_by(cluster) %>%
+  summarise(n = n(), across(all_of(vars), mean), .groups = "drop")
+
+profile_z %>% mutate(across(all_of(vars), ~ round(.x, 2)))
+
+#Cluster 1 "Profit Challenged Small Caps"
+#Cluster 2 "Large Profit Leaders"
+#Cluster 3 "Mature Cash Cows"
+#Cluster 4 "High Growth Small Caps"
+```
+
+```{r}
+#Assigning cluster names in the dataframe
+
+StdPharma <- StdPharma %>%
+  mutate(cluster_name = recode(as.character(cluster),
+    "1" = "Profit Challenged Small Caps",
+    "2" = "Large Profit Leaders",
+    "3" = "Mature Cash Cows",
+    "4" = "High Growth Small Caps"
+  ))
+```
+
+Assignment 4 Questions/Instructions Below
+
+a. Use only the numerical variables (1 to 9) to cluster the 21 firms. Justify the various choices made in conducting the cluster analysis, such as weights for different variables, the specific clustering algorithm(s) used, the number of clusters formed, and so on.
+
+  Done - work shown above
+
+b. Interpret the clusters with respect to the numerical variables used in forming the clusters.
+
+  Done - work shown above
+
+c. Is there a pattern in the clusters with respect to the numerical variables (10 to 12)? (those not used in forming the clusters)
+
+  Many of the small cap companies (across the 2 small cap clusters) on this list are not      from the US, while virtually every company in the large cap and cash cow clusters are from   the US. Additionally, I notice that the Profit Challenged small caps all have Buy or Hold   assignments. Profit Challenged small caps additionally are the only group to show up on     other exchanges. 
+
+d. Provide an appropriate name for each cluster using any or all of the variables in the dataset.
+
+  Done - work shown above
+
