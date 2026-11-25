@@ -1,0 +1,153 @@
+---
+title: "Assignment_5_jprillam"
+output: html_notebook
+---
+
+```{r}
+#Setting the working directory
+setwd("/Users/joe/Desktop/Masters Program/Fall 2026/Fundamentals of Machine Learning/Module 8/Assignment 5")
+
+#Reading in the csv to create the original data frame
+OriginalCereal <- read.csv("Cereals.csv")
+```
+
+```{r}
+#chunk for installing or calling packages needed for work
+library(dplyr)
+  #install.packages("cluster")
+library(cluster)
+  #install.packages("tibble")
+library(tibble)
+library(mclust)
+  #install.packages("mclust")
+```
+
+```{r}
+#Chunk for cleaning and transforming data
+
+#removing rows with blank values per the assignment instructions
+CleanCereal <- OriginalCereal %>%
+  filter(complete.cases(.))
+
+#Since the clusters are being used to find a healthy cluster of cereals, I can remove some columns/variables that are less valuable for us
+#for example, shelf, type & mfr are not as valuable
+
+TrimmedCereal <- CleanCereal %>%
+  select(-mfr, -type, -shelf)
+
+#Need to standardize/scale numeric values
+ScaledCereal <- TrimmedCereal %>%
+  mutate(across(-c(name), ~ as.numeric(scale(.x))))
+ScaledCereal <- ScaledCereal %>%
+  as.data.frame() %>%
+  column_to_rownames(var = names(ScaledCereal)[1])
+
+head(ScaledCereal,5)
+```
+
+```{r}
+#Apply hierarchical clustering to the data using Euclidean distance to the normalized measurements
+
+#dissimilarity matrix
+d <- dist(ScaledCereal, method = "euclidean")
+
+#hierarchical clustering using complete linkage
+hc1 <- hclust(d, method = "complete")
+
+#plot dendrogram
+plot(hc1, cex = 0.4, hang = -1)
+```
+
+```{r}
+# Compute with agnes and with different linkage methods
+hc_sngl <- agnes(ScaledCereal, method = "single")
+hc_comp <- agnes(ScaledCereal, method = "complete")
+hc_avg <- agnes(ScaledCereal, method = "average")
+hc_ward <- agnes(ScaledCereal, method = "ward")
+
+#compare agglom coeff with different linkage methods
+print(hc_comp$ac)
+print(hc_avg$ac)
+print(hc_sngl$ac)
+print(hc_ward$ac)
+```
+
+```{r}
+#using ward linkage and euclidean distance
+
+# ward linkage with euclidean distance
+hc_ward <- agnes(ScaledCereal, metric = "euclidean", method = "ward")
+
+# dendrogram plot
+pltree(hc_ward, cex = 0.4, hang = -1, main = "Dendrogram of AGNES (Ward)")
+rect.hclust(hc_ward, k = 5, border = 1:4)
+```
+I chose k=5, with a height of ~10 as the cutoff point because of the structure of the dendrogram. There are pretty long verticals before these 5 groups are subdivided.
+
+
+```{r}
+#going to check the stability of the clusters at k=5
+hc_full <- agnes(ScaledCereal, metric = "euclidean", method = "ward")
+cl_full <- cutree(as.hclust(hc_full), k = 5)
+table(cl_full)   # cluster sizes
+
+#partition and cluster partition A
+set.seed(404)
+n <- nrow(ScaledCereal)
+idx_A <- sample(n, size = round(0.6 * n))
+
+A <- ScaledCereal[idx_A, ]
+B <- ScaledCereal[-idx_A, ]
+
+hc_A <- agnes(A, metric = "euclidean", method = "ward")
+cl_A <- cutree(as.hclust(hc_A), k = 5)
+
+# centriods- one row per cluster
+cent <- as.matrix(aggregate(A, by = list(Cluster = cl_A), FUN = mean)[, -1])
+
+# Assign each row of B to the closest centroid
+B_mat <- as.matrix(B)
+assign_B <- apply(B_mat, 1, function(x) which.min(colSums((t(cent) - x)^2)))
+
+full_B <- cl_full[-idx_A]    # full-data clusters for the same B records
+
+# cross tab to show centroid based assignment vs full-data cluster
+tab <- table(Partition_A_centroids = assign_B, Full_data = full_B)
+tab
+
+#adjusted random indexing
+library(mclust)
+adjustedRandIndex(assign_B, full_B)
+
+#% agreement after matching labels
+sum(apply(tab, 1, max)) / sum(tab)
+
+stab <- sapply(1:20, function(s) {
+  set.seed(s)
+  idx <- sample(n, round(0.6 * n))
+  cl <- cutree(as.hclust(agnes(ScaledCereal[idx, ], method = "ward")), k = 5)
+  cent <- as.matrix(aggregate(ScaledCereal[idx, ], by = list(cl), FUN = mean)[, -1])
+  asg <- apply(as.matrix(ScaledCereal[-idx, ]), 1,
+               function(x) which.min(colSums((t(cent) - x)^2)))
+  adjustedRandIndex(asg, cl_full[-idx])
+})
+summary(stab)
+
+```
+
+The clusters are somewhat stable, not super stable, but given the task at hand, and not wanting to include the 3 products that are off in their own tiny cluster in one of the larger clusters, especially due to the height of their breaking in the dnedrogram, I am going to stick with 5 clusters, recognizing that some trade-offs were made here.
+
+```{r}
+FinalCerealCluster <- CleanCereal %>%
+  mutate(Cluster = cl_full)
+
+FinalClusterAvg <- FinalCerealCluster %>%
+  group_by(Cluster) %>%
+  summarise(across(where(is.numeric), ~ round(mean(.x, na.rm = TRUE), 2)))
+```
+
+After looking across the clusters, I would suggest cluster #4. This cluster has a decent, or middling, amount of protein compared to other clusters, lower fats and sugars than most other cereal groups, and the highest amount of vitamins on average.
+
+
+
+
